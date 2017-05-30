@@ -4,6 +4,7 @@ udpated on Oct 10, 2013
 @author: kyleg
 Modified by Dirk 2015-09-08
 Modified by Dirk 2015-11-16
+Modified by Dirk 2016-02-09: Added where clause to search cursor.
 Kandrive version of Wichway's CDRS_Update.py
 Kandrive_Construction_Update.py
 '''
@@ -145,12 +146,17 @@ def TnA():
                             'ContactName', 'ContactPhone', 'ContactEmail', 'WebLink',  'AlertStatus', 'FeaClosed', 'Status',
                             'AlertDirectTxt', 'X', 'Y', 'LoadDate']
         
-        cdrsSearchCursor = daSearchCursor(r"in_memory\CDRS", searchCursorFields)
+        cdrsSearchCursor = daSearchCursor(r"in_memory\CDRS", searchCursorFields, """ "Alert_Status_I" <> 3""")
         
         for cdrsCursorItem in cdrsSearchCursor:
             featureItem = list(cdrsCursorItem)
             featureItem.append(starttime)
             featuresToTransfer.append(featureItem)
+        
+        ##Debug
+        for feature in featuresToTransfer:
+            print feature
+        ##
         
         RemoveJoin_management("ConstJoin", "wz")
         

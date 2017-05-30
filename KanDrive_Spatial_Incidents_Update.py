@@ -176,12 +176,17 @@ def transferFeatures():
             featureItem = list(CDRS_CursorItem)
             featuresToTransfer.append(featureItem)
         
+        ##Debug
+        for feature in featuresToTransfer:
+            print feature
+        ##
+		
         Incidents_InsertCursor = daInsertCursor(kanDriveSpatialIncidents, insertCursorFields)
         
         for CDRS_Feature in featuresToTransfer:
             insertOID = Incidents_InsertCursor.insertRow(CDRS_Feature)
             print "Inserted a row with the OID of: " + str(insertOID)
-            
+        
         '''
         print "fieldNames to be used in the searchCursor:"
         for fieldName in searchCursorFields:

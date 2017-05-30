@@ -1,0 +1,254 @@
+/* create method to update Conditions Table
+   9/6/2016
+
+*/
+
+
+/*  1. Created Linked Server KRDEVINT in Sql Server Ar61\GDB_dev to Kroad5 (KrDevInt).  */
+
+
+Test it:
+
+SELECT * FROM OpenQuery (KRDEVINT, 'select host_name, instance_name from v$instance')
+
+SELECT * FROM OpenQuery (KRDEVINT, 'select COUNT(*) FROM RCRS_ROADS')
+
+
+linked_server_name.catalog_name.schema_name.table_name
+When using the Oracle OLE DB provider, the catalog name should be left blank ('..').
+
+
+* select LRS_KEY,ROUTE_ID,BEG_STATE_LOGMILE FROM KRDEVINT..KANROAD.RCRS_ROADS
+
+
+[The OLE DB provider "OraOLEDB.Oracle" for linked server "KRDEVINT" supplied invalid metadata for column "GEOMETRY". 
+The data type is not supported.]
+
+This will fail because column "GEOMETRY". The data type is not supported.  Must use OpenQuery statement
+and exclude Geometry or provide some translation for it.
+
+
+* the query is:
+
+SELECT * FROM OpenQuery (KRDEVINT, 'select 
+  OBJECTID,
+  BEG_STATE_LOGMILE,
+  BEG_DESC ,
+  END_DESC  ,
+  RCRS_ROADS_ID,
+  ROAD_CONDITION,
+  ROAD_COND_TEXT,
+  ROAD_COND_TIME
+FROM RCRS_ROADS')
+
+
+
+/* 2. create view */
+
+USE Kandrive_Spatial 
+go
+
+drop VIEW dbo.KRDEVINT_RCRS_ROADS 
+go
+
+CREATE VIEW dbo.KRDEVINT_RCRS_ROADS 
+AS 
+SELECT * FROM OpenQuery (KRDEVINT, 'select 
+  OBJECTID                                   as RCRS_OBJECTID,
+  cast(BEG_STATE_LOGMILE as numeric(38, 8) ) AS RCRS_BEG_STATE_LOGMILE,
+  BEG_DESC                                   AS RCRS_BEG_DESC,
+  END_DESC                                   AS RCRS_END_DESC,
+  RCRS_ROADS_ID                              AS RCRS_RCRS_ROADS_ID,
+  ROAD_CONDITION                             AS RCRS_ROAD_CONDITION,
+  ROAD_COND_TEXT                             AS RCRS_ROAD_COND_TEXT,
+  ROAD_COND_TIME                             AS RCRS_ROAD_COND_TIME
+FROM RCRS_ROADS')
+
+
+select * from KRDEVINT_RCRS_ROADS 
+
+
+
+/* 3. create difference view */
+
+use kandrive_spatial
+go
+
+Create view RCRS_DIFFERENCE_TABLE
+as
+select
+    s.*
+from kandrive_spatial.DBO.KRDEVINT_RCRS_ROADS as s
+   inner join kandrive_spatial.DBO.Conditions as t
+    on  s.RCRS_RCRS_ROADS_ID = t.RCRS_ROADS_ID
+where s.RCRS_BEG_STATE_LOGMILE <> t.BEG_STATE_LOGMILE 
+or s.RCRS_BEG_DESC <> t.BEG_DESC
+or s.RCRS_END_DESC <> t.END_DESC
+or s.RCRS_ROAD_CONDITION <> t.ROAD_CONDITION
+or s.RCRS_ROAD_COND_TEXT <> t.ROAD_COND_TEXT
+or s.RCRS_ROAD_COND_TIME <> t.ROAD_COND_TIME;
+go
+
+
+select count(*) from RCRS_DIFFERENCE_TABLE;
+select * from RCRS_DIFFERENCE_TABLE;
+
+
+
+/* 4. create procedure */
+
+* the update is:
+
+UPDATE kandrive_spatial.DBO.Conditions 
+  set BEG_STATE_LOGMILE = t.RCRS_BEG_STATE_LOGMILE,
+      BEG_DESC          = t.RCRS_BEG_DESC,
+      END_DESC          = t.RCRS_END_DESC,
+      ROAD_CONDITION = t.RCRS_ROAD_CONDITION,
+      ROAD_COND_TEXT = t.RCRS_ROAD_COND_TEXT,
+      ROAD_COND_TIME = t.RCRS_ROAD_COND_TIME
+FROM
+  RCRS_DIFFERENCE_TABLE as t
+  where kandrive_spatial.DBO.Conditions.RCRS_ROADS_ID = t.RCRS_RCRS_ROADS_ID;
+
+
+select * from Conditions ;
+
+
+
+* the procedure is:
+
+USE kandrive_spatial
+GO
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- ===================================================================================================
+-- Author:	S.McGlasson, K.Hennes, D.Talley
+-- Create date: 9/6/2016
+-- Modified:	
+--
+-- Description:	This will update the Conditions table with rows read from RCRS_DIFFERENCE_TABLE.
+--		
+-- Dependencies: 
+--    RCRS_DIFFERENCE_TABLE: view compares rows in RCRS_ROADS and Conditions table to identify 
+--                           changed rows.
+--    KRDEVINT_RCRS_ROADS:   view brings in rows from RCRS_ROADS table from Oracle Kroad5 (KrDevInt).
+-- ===================================================================================================
+CREATE PROCEDURE [dbo].[update_conditions_table]
+
+AS
+BEGIN
+
+  UPDATE kandrive_spatial.DBO.Conditions 
+    set BEG_STATE_LOGMILE = t.RCRS_BEG_STATE_LOGMILE,
+        BEG_DESC          = t.RCRS_BEG_DESC,
+        END_DESC          = t.RCRS_END_DESC,
+        ROAD_CONDITION = t.RCRS_ROAD_CONDITION,
+        ROAD_COND_TEXT = t.RCRS_ROAD_COND_TEXT,
+        ROAD_COND_TIME = t.RCRS_ROAD_COND_TIME
+  FROM
+    RCRS_DIFFERENCE_TABLE as t
+    where kandrive_spatial.DBO.Conditions.RCRS_ROADS_ID = t.RCRS_RCRS_ROADS_ID;	
+
+END
+GO
+
+
+
+* test it 
+
+USE kandrive_spatial
+GO
+execute  update_conditions_table;
+go
+
+
+select * from Conditions ;
+
+
+
+/* 5. Schedule it. */
+
+Name: Update_Conditions_Table
+Owner: DTNT\dbadmin
+frequency: every 10 minutes.
+
+
+
+USE [msdb]
+GO
+
+/****** Object:  Job [Update_Conditions_Table]    Script Date: 09/06/2016 11:54:14 ******/
+BEGIN TRANSACTION
+DECLARE @ReturnCode INT
+SELECT @ReturnCode = 0
+/****** Object:  JobCategory [[Uncategorized (Local)]]]    Script Date: 09/06/2016 11:54:14 ******/
+IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+BEGIN
+EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+
+END
+
+DECLARE @jobId BINARY(16)
+EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'Update_Conditions_Table', 
+		@enabled=1, 
+		@notify_level_eventlog=0, 
+		@notify_level_email=0, 
+		@notify_level_netsend=0, 
+		@notify_level_page=0, 
+		@delete_level=0, 
+		@description=N'This will update the Conditions table with rows read from RCRS_DIFFERENCE_TABLE.', 
+		@category_name=N'[Uncategorized (Local)]', 
+		@owner_login_name=N'DTNT\dbadmin', @job_id = @jobId OUTPUT
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+/****** Object:  Step [Run [dbo]].[update_conditions_table]]]    Script Date: 09/06/2016 11:54:15 ******/
+EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'Run [dbo].[update_conditions_table]', 
+		@step_id=1, 
+		@cmdexec_success_code=0, 
+		@on_success_action=1, 
+		@on_success_step_id=0, 
+		@on_fail_action=2, 
+		@on_fail_step_id=0, 
+		@retry_attempts=0, 
+		@retry_interval=0, 
+		@os_run_priority=0, @subsystem=N'TSQL', 
+		@command=N'execute  update_conditions_table
+', 
+		@database_name=N'kandrive_spatial', 
+		@flags=0
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'Update kandrive_spatial.Conditions table', 
+		@enabled=1, 
+		@freq_type=4, 
+		@freq_interval=1, 
+		@freq_subday_type=4, 
+		@freq_subday_interval=10, 
+		@freq_relative_interval=0, 
+		@freq_recurrence_factor=0, 
+		@active_start_date=20160906, 
+		@active_end_date=99991231, 
+		@active_start_time=0, 
+		@active_end_time=235959, 
+		@schedule_uid=N'0f7cbc0d-66e9-45da-86c8-f59e00e7f9c6'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+COMMIT TRANSACTION
+GOTO EndSave
+QuitWithRollback:
+    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+EndSave:
+
+GO
+
+
+
+
+
+/* END */
+
+
